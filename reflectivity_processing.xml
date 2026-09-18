@@ -1,0 +1,90 @@
+<?xml version="1.0"?> 
+<!DOCTYPE workflow
+[
+
+<!ENTITY WR1 "/work/noaa/wrfruc/jdduda">
+<!ENTITY WORKDIR "&WR1;/radar_mask">
+<!ENTITY LOGDIR "&WR1;/radar_mask/log">
+<!ENTITY SCRIPT "&WR1;/radar_mask/run_process_script.bash">
+<!ENTITY ORION_OR_HERCULES "hercules-2">
+<!ENTITY RADARDIR "/work2/noaa/wrfruc/Ruifang.Li/RadarNext_OSSE/Data/refl_simulated">
+]>
+
+<workflow realtime="F" scheduler="slurm" cyclethrottle="9999" taskthrottle="150">
+
+  <log><cyclestr>&LOGDIR;/workflow_@Y@m@d@H@M.log</cyclestr></log>
+    
+  <cycledef group="main">*/15 12-23  29 4 2022 *</cycledef>
+  <cycledef group="main">*/15   *    30 4 2022 *</cycledef>
+  <cycledef group="main">*/15   *   1-5 5 2022 *</cycledef>
+  <cycledef group="main">*/15  0-12   6 5 2022 *</cycledef>
+
+  <task name="doitall" cycledefs="main" maxtries="9999">
+
+    <command><cyclestr>&SCRIPT;</cyclestr></command>
+    <account>wrfruc</account>
+    <partition>&ORION_OR_HERCULES;</partition>
+    <walltime>8:00:00</walltime>
+    <nodes>1:ppn=1</nodes>
+    <queue>batch</queue>
+    <native>--exclusive</native>
+    <jobname><cyclestr>process_reflectivity_@d@H@M</cyclestr></jobname>
+    <join><cyclestr>&LOGDIR;/process_refl_@Y@m@d@H@M.out</cyclestr></join>
+
+    <envar><name>TIME</name><value><cyclestr>@Y@m@d@H@M</cyclestr></value></envar>
+    <envar><name>RADAR_DIR</name><value>&RADARDIR;</value></envar>
+
+    <dependency>
+     <and>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_00.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_00.75_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_01.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_01.25_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_01.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_01.75_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_02.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_02.25_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_02.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_02.75_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_03.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_03.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_04.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_04.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_05.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_05.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_06.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_06.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_07.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_07.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_08.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_08.50_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_09.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_10.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_11.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_12.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_13.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_14.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_15.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_16.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_17.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_18.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep minsize="50K"><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_19.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+<!--      </and>
+      <and>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_11.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_12.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_13.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_14.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_15.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_16.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_17.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_18.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+        <datadep><cyclestr>&RADARDIR;/@Y@m@d-@H@M/MergedReflectivityQC_19.00_@Y@m@d-@H@M00.grib2</cyclestr></datadep>
+      </and> -->
+     </and>
+    </dependency>
+
+  </task>
+
+</workflow>
+

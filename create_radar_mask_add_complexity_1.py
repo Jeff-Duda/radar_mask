@@ -1,3 +1,9 @@
+# Copied from create_radar_mask.py on 16 July 2026 at 0334 UTC
+# The change here is to modify the setting of radar mask from
+# -Selecting all space between the lowest and highest beam heights
+# to
+# -Creating a 3D mask matrix and setting points within that matrix to "ON" if they are illuminated by a beam in the loop starting on line 249
+#  By default, all points in the 3d mask matrix are initialized to "OFF"
 import numpy as np
 from numpy.linalg import norm as mag
 from numpy.random import default_rng
@@ -13,15 +19,16 @@ import grib2io
 import pandas as pd
 from netCDF4 import Dataset
 from math import cos, sin, tan, pi, degrees, radians, acos, asin, atan2, sqrt, isinf
+#from scipy.spatial import cKDTree
 from sys import exit
 
 #SETTINGS
-tag = "_fuller" # for describing different tests (use leading underscore if non-empty)
+tag = "_GJX_clear" # for describing different tests
 out_dir = "/work/noaa/wrfruc/jdduda/radar_mask"
 radar_dH = 30. # [m]
 cmap = colormaps['tab20']
 colors = cmap(np.linspace(0,1,21))
-#radars_clear = ['KFTG','KPUX','KCYS','KGJX','KMTX','KICX','KABX']
+radars_clear = ['KFTG','KPUX','KCYS','KGJX','KMTX','KICX','KABX']
 
 maj_axis = distance.ELLIPSOIDS['WGS-84'][1]
 min_axis = distance.ELLIPSOIDS['WGS-84'][0]
@@ -35,11 +42,6 @@ max_height = 1e3*np.max(MRMS_heights)
 max_radar_ranges = {'S':460.0,'C':250.0,'X':120.0} # maximum allowable range of data by band letter
 prj = ccrs.PlateCarree()
 rng = default_rng()
-
-extent = [-127.5,-65,24,51]
-fig_x = 12
-AR = (extent[3]-extent[2])/(extent[1]-extent[0])
-fig_y = AR*fig_x
 
 def gc2d(lon1, lat1, lon2, lat2):
 
@@ -69,7 +71,7 @@ def calc_slant_range_2D(H,Z,xr):
    """Compute slant range of a radar beam.
    Required inputs:
    H - radar site height (ASL)
-   Z - elevation ASL
+   Z - some total height level (generally terrain_height + height_above_ground
    xr - horizontal distance along curved surface (surface of Earth)"""
    # all arrays must be in 2D, including radar height
 
@@ -91,17 +93,6 @@ def beam_height_2d(H,angle,dist):
    z2d = np.cos(angle)/np.cos((dist/Re)+angle) * (Re+H) - Re
    return z2d
 
-def alpha_to_num(input):
-   # Convert alphabetic radar wavelength band name to an integer
-   if input == "S":
-      output = 1
-   elif input == "C":
-      output = 2
-   elif input == "X":
-      output = 3
-   else:
-      raise Exception(f"band name {input} not recognized. You made a mistake somewhere")
-
 # Decide on a grid to make the mask on
 if False:
  # Obtain nature run grid (from UPP files since there are some minor discrepancies between the grid from the geo_em.d01.nc file and the UPP files)
@@ -120,16 +111,10 @@ if False:
  terrain_2D = nc.variables['HGT_M'][:][0,:,:]
  nc.close()
 else:
-#(base) hercules-login-2[87] jduda$ wgrib2 -V MRMS_MergedReflectivityQC_05.50_20201128-011040.grib2
-#1:0:vt=2020112801:5500 m above mean sea level:anl:ConusMergedReflectivityQC WSR-88D 3D Reflectivty Mosaic - 33 CAPPIS (500-19000m) [dBZ]:
-#    ndata=24500000:undef=0:mean=-525.491:min=-999:max=51
-#        lat-lon grid:(7000 x 3500) units 1e-06 input WE:NS output WE:SN res 48
-#        lat 54.995000 to 20.005000 by 0.010000
-#        lon 230.004999 to 299.994999 by 0.010000 #points=24500000
  MRMS_lat_1 = 20.005
- MRMS_lon_1 = -129.995 # equivalent to 230.005 - 360
+ MRMS_lon_1 = -129.995
  MRMS_lat_2 = 54.995
- MRMS_lon_2 = -60.005 # equivalent to 299.995 - 360
+ MRMS_lon_2 = -60.995
  grid_nx = 7000
  grid_ny = 3500
  lat1d = np.linspace(MRMS_lat_1,MRMS_lat_2,grid_ny)
@@ -159,8 +144,8 @@ for name in radar_sites_dict.keys():
       continue
    radar_sites_dict[name]['beam_width'] = 1.0
    radar_sites_dict[name]['VCP'] = VCP12
- #  if name in radars_clear:
- #     radar_sites_dict[name]['VCP'] = VCP31
+   if name in radars_clear:
+      radar_sites_dict[name]['VCP'] = VCP31
    if name[0] == "K": # Only US radars
       radar_sites_dict[name]['ELEV'] = radar_sites_dict[name]['ELEV']/3.821 # convert from [ft] to [m]
 for i in range(len(remove_list)):
@@ -180,24 +165,24 @@ min_beam_height_grid = np.full((grid_ny,grid_nx),1e6,dtype=float)
 max_beam_height_grid = np.full((grid_ny,grid_nx),-1e6,dtype=float)
 #closest_radar_slant_range = np.zeros((grid_ny,grid_nx),dtype=float)
 beam_angle_at_height = np.zeros((len(MRMS_heights),grid_ny,grid_nx),dtype=float)
-closest_radar_slant_range = np.full((len(MRMS_heights),grid_ny,grid_nx),1e7,dtype=float)
+closest_radar_slant_range = np.full((len(MRMS_heights),grid_ny,grid_nx),1e6,dtype=float)
 radar_site_height_grid = np.zeros_like(min_beam_height_grid,dtype=float)
-closest_radar_dist_grid = np.full((grid_ny,grid_nx),1e7,dtype=float)
+closest_radar_dist_grid = np.zeros((grid_ny,grid_nx),dtype=float)
 closest_radar_dir_grid = np.zeros((grid_ny,grid_nx),dtype=float)
 closest_radar_id_grid = np.zeros((grid_ny,grid_nx),dtype=int)
 distance_3D = np.full((len(MRMS_heights),grid_ny,grid_nx),1e6,dtype=float)
-wavelength_band = np.full((grid_ny,grid_nx),-1,dtype=int)
 final_radar_mask = np.full((len(MRMS_heights),grid_ny,grid_nx),-1,dtype=int)
 
 used_radars = []
-elapsed_time = 0.
-for rn,rad in enumerate(radar_sites_dict.keys()):
+for i,rad in enumerate(radar_sites_dict.keys()):
 
  time0 = default_timer()
  used_radars.append(rad)
+# if i > 5:
+#  break
 
  print("******************************************************")
- print(f"*** Working on radar site {rad} ({rn+1:3d} of {n_radars} radars) *** (location: {radar_sites_dict[rad]['NAME']})")
+ print(f"*** Working on radar site {rad} ({i+1:3d} of {n_radars} radars) *** (location: {radar_sites_dict[rad]['NAME']})")
  print("******************************************************")
  rdr_lon = radar_sites_dict[rad]['LON']
  rdr_lat = radar_sites_dict[rad]['LAT']
@@ -215,6 +200,8 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
  xt = radians(np.max(VCP_angles))
  nt = radians(np.min(VCP_angles))
  max_def_dist = max_radar_ranges[radar_sites_dict[rad]['BAND']]*1e3 # convert from [km] in the dictionary to [m]
+
+ this_radar_beam_heights = np.zeros((len(VCP_angles),grid_ny,grid_nx),dtype=float)
 
  # Obtain NR-gridpoint closest to radar site
  if False:
@@ -236,9 +223,6 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
  dumlt = np.full_like(grid_lons,rdr_lat)
  distances = gc2d(grid_lons,grid_lats,dumln,dumlt)
  radar_j,radar_i = np.unravel_index(np.argmin(distances),grid_lons.shape)
-# print(grid_lats[radar_j,radar_i])
-# print(grid_lons[radar_j,radar_i])
-# print(rdr_lon,rdr_lat)
  H = terrain_2D[radar_j,radar_i] + radar_dH # Radar site height ASL in the NR grid
  print( (f" The nominal height of this radar is {radar_sites_dict[rad]['ELEV']:.0f} m ASL, which puts it at {radar_sites_dict[rad]['ELEV']-terrain_2D[radar_j,radar_i]:.0f} m above ground."
          f" Regardless, the height in this code has been reset to {H:.0f} m ASL, which is set as {radar_dH:.0f} m above the terrain ({terrain_2D[radar_j,radar_i]:.0f} m) at the location of the radar"))
@@ -246,12 +230,6 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
     distance_at_height = gc3d(grid_lons,grid_lats,dumln,dumlt,H,1e3*MRMS_heights[h])
     distance_3D[h,:,:] = np.minimum(distance_3D[h,:,:],distance_at_height)
  sorted_distances = np.sort(distances.flatten())
- number_within = len(sorted_distances[sorted_distances <= max_def_dist])
- print(f" This radar is {radar_sites_dict[rad]['BAND']}-band, so the max distance is set to {max_def_dist/1e3:.0f} km. There are {number_within} ({100*number_within/(grid_nx*grid_ny):.3f} % of the total domain) points within this range of the radar site.")
- if number_within < 10:
-   print(" There are fewer than 10 domain points within range of this radar site. We will dis-include this radar site.")
-   used_radars.remove(rad)
-   continue
  sorted_idxs = np.unravel_index(np.argsort(distances.flatten()),distances.shape)
  ij_within_range = np.argwhere(distances <= max_def_dist)
  rows = ij_within_range[:,0]
@@ -259,8 +237,19 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
  radar_site_height_grid[rows,columns] = H
  print(np.max(ij_within_range,axis=0))
  print(np.min(ij_within_range,axis=0))
+
  distances_within_range = distances[distances <= max_def_dist]
  terrain_within_range = terrain_2D[distances <= max_def_dist]
+ #print(grid_lats[radar_j,radar_i])
+ #print(grid_lons[radar_j,radar_i])
+ sorted_j = sorted_idxs[0]
+ sorted_i = sorted_idxs[1]
+ number_within = len(sorted_distances[sorted_distances <= max_def_dist])
+ print(f" This radar is {radar_sites_dict[rad]['BAND']}-band, so the max distance is set to {max_def_dist/1e3:.0f} km. There are {number_within} ({100*number_within/(grid_nx*grid_ny):.3f} % of the total domain) points within this range of the radar site.")
+ if number_within < 10:
+   print(" There are fewer than 10 domain points within range of this radar site. We will dis-include this radar site.")
+   used_radars.remove(rad)
+   continue
  timeb = default_timer()
  #print(f" Time to sort the entire distance array: {timeb-timea:.3f} s")
 
@@ -282,26 +271,27 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
  timeb = default_timer()
 # print(f" It took {timeb-timea:.1f} s to compute bearings")
 
-# beam_height_grid = np.full((len(VCP_angles),grid_ny,grid_nx),1e6,dtype=float)
-# for v in range(len(VCP_angles)):
-#    vr = radians(VCP_angles[v])
-#    beam_height_2D = beam_height_2d(H,vr,distances)
-#    beam_height_grid[v,rows,columns] = np.minimum(beam_height_grid[v,rows,columns],beam_height_2d(H,vr,distances[rows,columns]))
-#    beam_height_grid[v,:,:] = np.minimum(beam_height_grid[v,:,:],beam_height_2D)
- # Eventually we want to interpolate beam_height_grid from VCP angle in the vertical to MRMS height int he vertical
- # In other words, we want to derive a beam_angle_at_height[MRMS_heights,:,:] grid from beam_height_grid[VCP_angles,:,:]
+ for v in range(len(VCP_angles)):
+   this_radar_beam_heights[v,:,:] = beam_height_2d(H,radians(VCP_angles[v],distances)
 
  # Now calculate the main array values and account for beam blockages
  blocked_points = np.empty((0,2),dtype=int)
-# plt.figure(figsize=(5,5))
-# plt.subplots_adjust(left=0.1,bottom=0.1,top=0.98,right=0.98)
-# cc = 0
+ xc = np.zeros((grid_ny,grid_nx,len(MRMS_heights),dtype=float)
+ yc = np.zeros((grid_ny,grid_nx,len(MRMS_heights),dtype=float)
+ zc = np.zeros((grid_ny,grid_nx,len(MRMS_heights),dtype=float)
  rbw = radians(beam_width)
- for az in np.arange(0,2*pi,rbw):
-   if az >= 0.5*rbw and az <= 2*pi-0.5*rbw:
-      idx_j,idx_i = np.where((np.abs(bearing-az) < 0.5*rbw) & (distances < max_def_dist))
-   else:
-      idx_j,idx_i = np.where(((bearing < 0.5*rbw) | (bearing > 2*pi-0.5*rbw)) & (distances < max_def_dist))
+ # Where is the beam center going to be relative to the grid?
+ for v in range(len(VCP_angles)):
+  vr = radians(VCP_angles[v])
+  for az in np.arange(0,2*pi,rbw):
+   for s in np.arange(0.,max_def_dist,250.):
+      xc,yc,zc = distance(meters=s).destination((rdr_lon,rdr_lat),bearing=degrees(az))
+      zc = beam_height_direct(H,vr,s)
+#      distance_from_beam_center_at_s = np.sqrt((grid_lons
+#   if az >= 0.5*rbw and az <= 2*pi-0.5*rbw:
+#      idx_j,idx_i = np.where((np.abs(bearing-az) < 0.5*rbw) & (distances < max_def_dist))
+#   else:
+#      idx_j,idx_i = np.where(((bearing < 0.5*rbw) | (bearing > 2*pi-0.5*rbw)) & (distances < max_def_dist))
       # the where command returns arrays that are almost correctly sorted by distance. But it's not 100% accurate, and that is important.
       # So I'll perform a sort myself
    blocked = np.full((len(VCP_angles),len(idx_j)),False,dtype=bool)
@@ -315,7 +305,7 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
     j = sorted_j[n]
     i = sorted_i[n]
  #   print(f"Working on point no. {n:04d}, i,j = {i},{j}, distance {beam_distances[n]:.1f} m, bearing {degrees(bearing[j,i]):.3f} deg")
-  #  radar_site_height_grid[j,i] = H
+    radar_site_height_grid[j,i] = H
     for v in range(len(VCP_angles)):
       vr = radians(VCP_angles[v])
       beam_height = beam_height_direct(H,vr,sorted_distances[n])
@@ -332,7 +322,6 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
             closest_radar_dir_grid[j,i] = (bearing[j,i] + pi) % (2*pi)
             min_beam_height_grid[j,i] = beam_height
             closest_radar_id_grid[j,i] = i+1
-            wavelength_band[j,i] = alpha_to_num(radar_sites_dict[rad]['BAND'])
             break
          else:
           continue
@@ -371,74 +360,19 @@ for rn,rad in enumerate(radar_sites_dict.keys()):
 # plt.legend(loc=0,fontsize=8)
 # plt.savefig(f"{out_dir}/radar_{rad}_values.png",dpi=150)
 # plt.close()
- timea = default_timer()
  for i,z in enumerate(MRMS_heights):
-    height_2d = np.full_like(radar_site_height_grid,1e3*z,dtype=float)
-    slant_range2d = calc_slant_range_2D(radar_site_height_grid,height_2d,closest_radar_dist_grid)
-    if False:
-#     print(i,1e3*z,np.count_nonzero(np.isnan(slant_range2d)),np.count_nonzero(np.isclose(slant_range2d,0.0)),np.nanmin(slant_range2d),np.nanmax(slant_range2d),np.nanmean(slant_range2d),np.nanstd(slant_range2d))
-     plt.figure(figsize=(fig_x,fig_y))
-     ax = plt.gcf().add_axes([0.01,0.01,0.98,0.98],projection=prj)
-     ax.set_extent(extent,crs=prj)
-     ax.add_feature(cfeature.STATES.with_scale('50m'),edgecolor='black',linewidth=1)
-     cf = ax.contourf(grid_lons,grid_lats,slant_range2d/1e3,levels = np.arange(0,500.1,50.),cmap=colormaps['CMRmap_r'],norm='linear',vmin=0.,vmax=550.,extend='max',transform=prj)
-     cb = plt.colorbar(mappable=cf,orientation='horizontal',fraction=0.075,pad=0.01,shrink=0.8,aspect=40)
-     cb.ax.tick_params(labelsize=6)
-     cb.set_label("Slant range to current/nearest radar site [km]",fontsize=8)
-     plt.savefig(f"{out_dir}/slant_range_diag_{rad}_{z*1e3:.0f}m.png",dpi=150)
-     plt.close()
-    closest_radar_slant_range[i,:,:] = np.minimum(closest_radar_slant_range[i,:,:],slant_range2d)
-#    closest_radar_slant_range[i,:,:] = np.minimum(closest_radar_slant_range[i,:,:],calc_slant_range_2D(radar_site_height_grid[:,:],height_2d,closest_radar_dist_grid[:,:]))
-#    height_2d = np.full_like(len(rows),1e3*z,dtype=float)
-#    closest_radar_slant_range[i,rows,columns] = np.minimum(closest_radar_slant_range[i,rows,columns],calc_slant_range_2D(radar_site_height_grid[rows,columns],height_2d,closest_radar_dist_grid[rows,columns]))
-#    if H > 1e3*z:
-    if H <= 1e3*z:
-       beam_angle_at_height[i,rows,columns] = np.maximum(beam_angle_at_height[i,rows,columns],np.rad2deg(np.arctan((1e3*z-H)/distances[rows,columns])))
- timeb = default_timer()
- print(f"Calculating slant range and beam angle took {timeb-timea:.2f} s")
-
- for rz in range(len(MRMS_heights)):
- # condition1_grid = ~np.isneginf(max_beam_height_grid) * ~np.isinf(min_beam_height_grid)
-  condition1_grid = (max_beam_height_grid > -1e5) * (min_beam_height_grid < 1e5)
-  condition2_grid = (MRMS_heights[rz]*1e3 >= min_beam_height_grid) * (1e3*MRMS_heights[rz] <= max_beam_height_grid)
-  final_radar_mask[rz,:,:] = np.where(condition1_grid,np.where(condition2_grid,1,0),-1)
-
- timea = default_timer()
- ncf = Dataset(f"{out_dir}/radar_mask{tag}_{rad}.nc",'w',format='NETCDF4')
- dimy = ncf.createDimension('latitude',grid_ny)
- dimx = ncf.createDimension('longitude',grid_nx)
- dimz = ncf.createDimension('height',len(MRMS_heights))
- varz = ncf.createVariable('MRMS_heights','i2',dimensions=(dimz))
- vardist = ncf.createVariable('distance_to_closest_radar_3D','f',dimensions=(dimz,dimy,dimx))
- varmask = ncf.createVariable('mask','i2',dimensions=(dimz,dimy,dimx))
- varangle = ncf.createVariable('elevation_angle','f',dimensions=(dimz,dimy,dimx))
- varslant = ncf.createVariable('slant_range','f',dimensions=(dimz,dimy,dimx))
- varband = ncf.createVariable('wavelength_band_num','i2',dimensions=(dimy,dimx))
- varz[:] = MRMS_heights
- varmask[:] = final_radar_mask
- vardist[:] = distance_3D
- varangle[:] = beam_angle_at_height
- varslant[:] = closest_radar_slant_range
- varband[:] = wavelength_band
- ncf.single_radar_site_name = rad
- ncf.values_key = "1 - within mask; 0 - outside of mask (but point was checked); -1 - gridpoint not checked, but assumed outside mask"
- ncf.grid_projection = "MRMS grid (0.01 x 0.01 deg.)"
- ncf.close()
- timeb = default_timer()
- print(f"Time to write netcdf file: {timeb-timea:.2f} s")
+    closest_radar_slant_range[i,:,:] = np.minimum(closest_radar_slant_range[i,:,:],calc_slant_range_2D(radar_site_height_grid,np.full_like(radar_site_height_grid,1e3*z),closest_radar_dist_grid))
 
  time00 = default_timer()
- elapsed_time += (time00-time0)
- print(f" Processing this radar took {time00-time0:.3f} s. Averaging {elapsed_time/(rn+1):.1f} s per radar site")
+ print(f" Processing this radar took {time00-time0:.3f} s")
 # End radar loop
 
-for i,z in enumerate(MRMS_heights):
-   beam_angle_at_height[i,:,:] = np.arctan((z-H)/distance_3D[i,:,:])
+#closest_radar_slant_range = calc_slant_range_2D(radar_site_height_grid,min_beam_height_grid,closest_radar_dist_grid)
+#print(np.nanmin(closest_radar_slant_range),np.nanmax(closest_radar_slant_range),np.nanmean(closest_radar_slant_range),np.nanmedian(closest_radar_slant_range),np.nanstd(closest_radar_slant_range))
 
 time0 = default_timer()
 for rz in range(len(MRMS_heights)):
-# condition1_grid = ~np.isneginf(max_beam_height_grid) * ~np.isinf(min_beam_height_grid)
- condition1_grid = (max_beam_height_grid > -1e5) * (min_beam_height_grid < 1e5)
+ condition1_grid = ~np.isneginf(max_beam_height_grid) * ~np.isinf(min_beam_height_grid)
  condition2_grid = (MRMS_heights[rz]*1e3 >= min_beam_height_grid) * (1e3*MRMS_heights[rz] <= max_beam_height_grid)
  final_radar_mask[rz,:,:] = np.where(condition1_grid,np.where(condition2_grid,1,0),-1)
 time1 = default_timer()
@@ -448,28 +382,25 @@ ncf = Dataset(f"{out_dir}/radar_mask{tag}.nc",'w',format='NETCDF4')
 dimy = ncf.createDimension('latitude',grid_ny)
 dimx = ncf.createDimension('longitude',grid_nx)
 dimz = ncf.createDimension('height',len(MRMS_heights))
-varz = ncf.createVariable('MRMS_heights','f2',dimensions=(dimz))
+varz = ncf.createVariable('MRMS_heights','i2',dimensions=(dimz))
 varid = ncf.createVariable('closest_radar_ID','i1',dimensions=(dimy,dimx))
-vardist = ncf.createVariable('distance_to_closest_radar_3D','f',dimensions=(dimz,dimy,dimx))
-varmask = ncf.createVariable('mask','i2',dimensions=(dimz,dimy,dimx))
-varangle = ncf.createVariable('elevation_angle','f',dimensions=(dimz,dimy,dimx))
-varslant = ncf.createVariable('slant_range','f',dimensions=(dimz,dimy,dimx))
-varband = ncf.createVariable('wavelength_band_num','i2',dimensions=(dimy,dimx))
+vardist = ncf.createVariable('distance_to_closest_radar_3D',dimension=(dimz,dimy,dimx))
+varmask = ncf.createVariable('mask','i1',dimensions=(dimz,dimy,dimx))
+varangle = ncf.createVariable('elevation_angle',dimensions=(dimz,dimy,dimx))
+varslant = ncf.createVariable('slant_range',dimensions=(dimz,dimy,dimx))
 varz[:] = MRMS_heights
 varmask[:] = final_radar_mask
 varid[:] = closest_radar_id_grid
 vardist[:] = distance_3D
-varangle[:] = beam_angle_at_height
-varslant[:] = closest_radar_slant_range
+varangle[:] = beam_angle_at_height[:]
+varslant[:] = closest_radar_slant_range[:]
 ncf.radars_used = used_radars
-varband[:] = wavelength_band
 ncf.radar_IDs = "closest_radar_ID is an integer corresponding to the list 'radars_used'"
 ncf.values_key = "1 - within mask; 0 - outside of mask (but point was checked); -1 - gridpoint not checked, but assumed outside mask"
 ncf.grid_projection = "MRMS grid (0.01 x 0.01 deg.)"
 ncf.close()
 
-if False:
- for i,z in enumerate(MRMS_heights):
+for i,z in enumerate(MRMS_heights):
    ncf = Dataset(f"{out_dir}/radar_mask{tag}_{1e3*z:05.0f}m.nc",'w',format='NETCDF4')
    dimy = ncf.createDimension('latitude',grid_ny)
    dimx = ncf.createDimension('longitude',grid_nx)
@@ -484,6 +415,10 @@ if False:
    ncf.close()
 
 if True:
+ extent = [-127.5,-65,24,51]
+ fig_x = 12
+ AR = (extent[3]-extent[2])/(extent[1]-extent[0])
+ fig_y = AR*fig_x
  height_levs = np.concatenate((np.arange(100.,1000.,100.),np.arange(1000.,10000,500.),np.arange(10000,20000.1,1000.)))
  distance_levs = np.arange(50.,750.,50.)
  angle_levs = np.arange(0,360.1,15.)
